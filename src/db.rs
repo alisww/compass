@@ -4,7 +4,6 @@ use uuid::Uuid;
 use deadpool_postgres::Client;
 
 use serde_json::{json,Value};
-use serde_json::map::Map as SerdeMap;
 
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::Type as PostgresType;
@@ -15,27 +14,19 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 
-type JSONMap = SerdeMap<String,Value>;
-
 pub async fn add_document(client: &Client, doc: String) -> Result<(),CompassError> {
     let v : Value = serde_json::from_str(&doc)?;
     client.execute("INSERT INTO documents (doc_id, object) VALUES ($1,$2);",&[&Uuid::new_v4(),&v]).await?;
     Ok(())
 }
 
-fn parse_query_list<F>(q: &str, filter_gen: F) -> (String,JSONMap) where F: Fn(&str, i32) -> (String,(String,Value)) {
+fn parse_query_list<F>(q: &str, filter_gen: F) -> String where F: Fn(&str) -> String {
     let mut filters: Vec<String> = Vec::new();
-    let mut bindings: JSONMap = JSONMap::new();
     let mut iter = q.split("_");
 
-    let mut i: i32 = 0;
-
     while let Some(val) = iter.next() {
-        let (filter, binding) = filter_gen(val,i);
+        let filter = filter_gen(val);
         filters.push(filter);
-        bindings.insert(binding.0,binding.1);
-
-        i += 1;
 
         if let Some(joiner) = iter.next() {
             if joiner == "and" {
@@ -48,7 +39,7 @@ fn parse_query_list<F>(q: &str, filter_gen: F) -> (String,JSONMap) where F: Fn(&
         }
     }
 
-    (filters.join(" "), bindings)
+    filters.join(" ")
 }
 
 pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Result<Vec<Value>,CompassError> {
@@ -57,7 +48,6 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
     let mut jsonb_filters = Vec::<String>::new();
     let mut other_filters = Vec::<String>::new();
 
-    let mut jsonb_bindings = JSONMap::new();
     let mut other_bindings = Vec::<String>::new();
 
     let mut converters: HashMap<String,ConverterSchema> = HashMap::new();
@@ -106,78 +96,60 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
 
         match field.1 { // time to generate the query!
             FieldQuery::Min => {
-                let (filters,mut bindings) = parse_query_list(v.as_str().unwrap(),|x,i| {
-                    (format!("(@.{} > ${}_{})",field.0,k,i),
-                    (
-                        format!("{}_{}",k,i),
-                        json!(x.parse::<i32>().unwrap() // don't unwrap here. please. change it to a better thing.
-                    )))
+                let filters = parse_query_list(v.as_str().unwrap(),|x| {
+                    format!("($.{} > {})",field.0,x.parse::<i32>().unwrap())
                 });
-                jsonb_bindings.append(&mut bindings);
                 jsonb_filters.push(filters);
             },
             FieldQuery::Max => {
-                let (filters,mut bindings) = parse_query_list(v.as_str().unwrap(),|x,i| {
-                    (format!("(@.{} < ${}_{})",field.0,k,i),
-                    (
-                        format!("{}_{}",k,i),
-                        json!(x.parse::<i32>().unwrap()
-                    )))
+                let filters = parse_query_list(v.as_str().unwrap(),|x| {
+                    format!("($.{} < {})",field.0,x.parse::<i32>().unwrap())
                 });
-                jsonb_bindings.append(&mut bindings);
                 jsonb_filters.push(filters);
             },
             FieldQuery::Tag => {
-                let (filters,mut bindings) = parse_query_list(v.as_str().unwrap(),|x,i| {
-                    (format!("(@.{} == ${}_{})",field.0,k,i),
-                    (
-                        format!("{}_{}",k,i),
-                        json!(x)
-                    ))
+                let filters = parse_query_list(v.as_str().unwrap(),|x| {
+                    format!("($.{} == {})",field.0,x)
                 });
-                jsonb_bindings.append(&mut bindings);
                 jsonb_filters.push(filters);
             },
             FieldQuery::Nested => {
-                let (filters,mut bindings) = parse_query_list(v.as_str().unwrap(),|x,i| {
-                    (format!("(@.{} == ${}_{})",field.0,k.replace(".","_"),i),
-                    (
-                        format!("{}_{}",k.replace(".","_"),i), // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
-                        if let Ok(n) = x.parse::<i64>() { json!(n) } else { json!(x) }
-                    ))
+                let filters = parse_query_list(v.as_str().unwrap(),|x| {
+                    if let Ok(n) = x.parse::<i64>() {
+                        format!("($.{} == {})",field.0, n) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                    } else {
+                        format!("($.{} == {})",field.0, x)
+                    }
                 });
-                jsonb_bindings.append(&mut bindings);
                 jsonb_filters.push(filters);
             },
             FieldQuery::Fulltext => {
-                other_filters.push(format!("to_tsvector(object->'{}') @@ phraseto_tsquery(${})",field.0, other_filters.len() + 6));
+                other_filters.push(format!("to_tsvector(object->'{}') @@ phraseto_tsquery(${})",field.0, other_filters.len() + 5));
                 other_bindings.push(v.to_string());
             },
             _ => {}
         }
     }
 
-    let json_query = format!("$ ? ({})",jsonb_filters.join(" && "));
-    let json_val = json!(jsonb_bindings);
+    let json_query = format!("({})",jsonb_filters.join(" && "));
 
     // build out full query
     let mut query = if jsonb_filters.len() > 0 && other_filters.len() == 0 {
-        "SELECT jsonb_path_query(object, CAST($1 AS JSONPATH), $2) FROM documents".to_string()
+        "SELECT object FROM documents WHERE object @@ CAST($1 AS JSONPATH)".to_string()
     } else if jsonb_filters.len() > 0 && other_filters.len() > 0 {
-        ("SELECT jsonb_path_query(object, CAST($1 AS JSONPATH), $2) FROM documents".to_string() + &format!(" INTERSECT SELECT object FROM documents WHERE {}",other_filters.join(" AND "))).to_string()
+        ("SELECT object FROM documents WHERE object @@ CAST($1 AS JSONPATH)".to_string() + &format!(" AND {}",other_filters.join(" AND "))).to_string()
     } else {
         format!("SELECT object FROM documents WHERE {}",other_filters.join(" AND "))
     };
 
-    query += &format!("ORDER BY object->>$3 LIMIT $4 OFFSET $5");
+    query += &format!(" ORDER BY object->>$2 LIMIT $3 OFFSET $4");
 
-    let statement: Statement = client.prepare_typed(query.as_str(), &[PostgresType::TEXT, PostgresType::JSONB]).await.map_err(CompassError::PGError)?;
+    let statement: Statement = client.prepare_typed(query.as_str(), &[PostgresType::TEXT]).await.map_err(CompassError::PGError)?;
 
-    // some defaults. todo, don't unwrap, please;
 
     let limit = match fields.get("limit") {
         Some(l) => {
-            l.as_str().unwrap().parse::<i64>().unwrap()
+            l.as_str().unwrap().parse::<i64>().map_err(CompassError::InvalidNumberError)?
         },
         None => {
             50
@@ -186,7 +158,7 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
 
     let offset = match fields.get("offset") {
         Some(l) => {
-            l.as_str().unwrap().parse::<i64>().unwrap()
+            l.as_str().unwrap().parse::<i64>().map_err(CompassError::InvalidNumberError)?
         },
         None => {
             0
@@ -195,7 +167,6 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
 
     let params: Vec<&dyn ToSql> = vec![
         &json_query,
-        &json_val,
         &schema.default_order_by,
         &limit,
         &offset

@@ -5,11 +5,12 @@ use tokio_postgres::{NoTls};
 use std::fs::File;
 use std::io::prelude::*;
 use serde_json::Value as JSONValue;
+use serde_json::json;
 
 #[get("/search")]
 async fn search(req: web::Query<JSONValue>, db_pool: web::Data<Pool>, schema: web::Data<Schema>) -> Result<HttpResponse,Error> {
     let client: Client = db_pool.get().await.map_err(CompassError::PoolError)?;
-    let res = json_search(&client,&schema,&req).await.unwrap(); // don't unwrap. please
+    let res = json_search(&client,&schema,&req).await.map(|val| json!(val))?;
     Ok(HttpResponse::Ok().json(res))
 }
 
@@ -31,7 +32,7 @@ async fn main() -> std::io::Result<()> {
             .data(schema.clone())
             .service(search)
     })
-    .bind("localhost:4444".to_string())?
+    .bind("localhost:4445".to_string())?
     .run();
 
     server.await
