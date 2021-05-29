@@ -109,7 +109,11 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
             },
             FieldQuery::Tag => {
                 let filters = parse_query_list(v.as_str().unwrap(),|x| {
-                    format!("($.{} == \"{}\")",field.0,x)
+                    if let Ok(n) = x.parse::<i64>() {
+                        format!("($.{} == {})",field.0, n) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                    } else {
+                        format!("($.{} == \"{}\")",field.0, x)
+                    }
                 });
                 jsonb_filters.push(filters);
             },
