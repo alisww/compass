@@ -1,4 +1,4 @@
-use rustventually::*;
+use compass::*;
 use actix_web::{get, web, App, HttpServer, HttpResponse, Error};
 use deadpool_postgres::{Config, ManagerConfig, Client, Pool, RecyclingMethod };
 use tokio_postgres::{NoTls};

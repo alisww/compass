@@ -1,5 +1,5 @@
 [package]
-name = "rustventually"
+name = "compass"
 version = "0.1.0"
 authors = ["Allie Signet <allie@cat-girl.gay>"]
 edition = "2018"
