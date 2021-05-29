@@ -26,7 +26,7 @@ pub struct ConverterSchema {
 #[serde(tag = "type")]
 pub enum FieldQuery {
     Range {  min: String,  max: String },
-    Fulltext,
+    Fulltext { lang: String },
     Tag,
     Nested,
     Min,

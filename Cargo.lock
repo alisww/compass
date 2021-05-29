@@ -435,6 +435,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "compass"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "chrono",
+ "deadpool-postgres",
+ "futures",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio-postgres",
+ "uuid",
+]
+
+[[package]]
 name = "config"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1422,21 +1437,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
  "semver",
-]
-
-[[package]]
-name = "rustventually"
-version = "0.1.0"
-dependencies = [
- "actix-web",
- "chrono",
- "deadpool-postgres",
- "futures",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio-postgres",
- "uuid",
 ]
 
 [[package]]

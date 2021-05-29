@@ -123,8 +123,8 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
                 });
                 jsonb_filters.push(filters);
             },
-            FieldQuery::Fulltext => {
-                other_filters.push(format!("to_tsvector(object->'{}') @@ phraseto_tsquery(${})",field.0, other_filters.len() + 5));
+            FieldQuery::Fulltext { ref lang } => {
+                other_filters.push(format!("to_tsvector('{}',object->>'{}') @@ phraseto_tsquery(${})", lang, field.0, other_filters.len() + 5));
                 other_bindings.push(v.to_string());
             },
             _ => {}
@@ -145,7 +145,6 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
     query += &format!(" ORDER BY object->>$2 LIMIT $3 OFFSET $4");
 
     let statement: Statement = client.prepare_typed(query.as_str(), &[PostgresType::TEXT]).await.map_err(CompassError::PGError)?;
-
 
     let limit = match fields.get("limit") {
         Some(l) => {
