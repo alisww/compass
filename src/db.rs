@@ -128,7 +128,7 @@ pub async fn json_search(client: &Client, schema: &Schema, params: &Value) -> Re
                 jsonb_filters.push(filters);
             },
             FieldQuery::Fulltext { ref lang } => {
-                other_filters.push(format!("to_tsvector('{}',object->>'{}') @@ phraseto_tsquery(${})", lang, field.0, other_filters.len() + 5));
+                other_filters.push(format!("to_tsvector('{lang}',object->>'{key}') @@ phraseto_tsquery('{lang}',${param})", lang=lang, key=field.0, param=other_filters.len() + 5));
                 other_bindings.push(v.to_string());
             },
             _ => {}
