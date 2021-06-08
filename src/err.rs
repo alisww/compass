@@ -1,7 +1,5 @@
-use tokio_postgres::error::Error as PGError;
+use postgres::error::Error as PGError;
 use serde_json::error::Error as SerdeError;
-use deadpool_postgres::PoolError;
-use actix_web::{HttpResponse, ResponseError};
 use std::fmt;
 use std::num::ParseIntError;
 
@@ -9,7 +7,6 @@ use std::num::ParseIntError;
 pub enum CompassError {
     FieldNotFound,
     PGError(PGError),
-    PoolError(PoolError),
     JSONError(SerdeError),
     InvalidNumberError(ParseIntError)
 }
@@ -19,12 +16,6 @@ impl std::error::Error for CompassError {}
 impl From<PGError> for CompassError {
     fn from(err: PGError) -> CompassError {
         CompassError::PGError(err)
-    }
-}
-
-impl From<PoolError> for CompassError {
-    fn from(err: PoolError) -> CompassError {
-        CompassError::PoolError(err)
     }
 }
 
@@ -40,19 +31,50 @@ impl From<ParseIntError> for CompassError {
     }
 }
 
-impl ResponseError for CompassError {
-    fn error_response(&self) -> HttpResponse {
-        match *self {
-            CompassError::PoolError(ref err) => { HttpResponse::InternalServerError().body(err.to_string()) },
-            CompassError::PGError(ref err) => { HttpResponse::InternalServerError().body(err.to_string()) },
-            CompassError::InvalidNumberError(ref err) => { HttpResponse::InternalServerError().body(err.to_string()) },
-            _ => HttpResponse::InternalServerError().finish()
-        }
+impl fmt::Display for CompassError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
-impl fmt::Display for CompassError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f,"{:?}",self)
+#[cfg(feature = "rocket_support")]
+use rocket::{http::Status, response::{Response,Responder,self}, Request};
+#[cfg(feature = "rocket_support")]
+use std::io::Cursor;
+#[cfg(feature = "rocket_support")]
+use CompassError::*;
+#[cfg(feature = "rocket_support")]
+impl<'r> Responder<'r, 'static> for CompassError {
+    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
+        match self {
+            FieldNotFound => {
+                let r_text = "field not found in schema";
+                Response::build()
+                .status(Status::BadRequest)
+                .sized_body(r_text.len(),Cursor::new(r_text))
+                .ok()
+            },
+            InvalidNumberError(_) => {
+                let r_text = "couldn't parse number parameter";
+                Response::build()
+                .status(Status::BadRequest)
+                .sized_body(r_text.len(),Cursor::new(r_text))
+                .ok()
+            },
+            PGError(ref err) => {
+                let r_text = err.to_string();
+                Response::build()
+                .status(Status::InternalServerError)
+                .sized_body(r_text.len(),Cursor::new(r_text))
+                .ok()
+            },
+            JSONError(ref err) => {
+                let r_text = err.to_string();
+                Response::build()
+                .status(Status::InternalServerError)
+                .sized_body(r_text.len(),Cursor::new(r_text))
+                .ok()
+            }
+        }
     }
 }
