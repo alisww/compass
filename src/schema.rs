@@ -53,15 +53,22 @@ pub enum ConvertTo {
     TagArray,
 }
 
-
 #[cfg(feature = "rocket_support")]
-use rocket::{State, async_trait, outcome::IntoOutcome, request::{self, Request, FromRequest}};
+use rocket::{
+    async_trait,
+    outcome::IntoOutcome,
+    request::{self, FromRequest, Request},
+    State,
+};
 #[cfg(feature = "rocket_support")]
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for Schema {
     type Error = ();
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, ()> {
-        request.guard::<&State<Schema>>().await.map(|s| s.inner().clone()) // clone bad, i know
+        request
+            .guard::<&State<Schema>>()
+            .await
+            .map(|s| s.inner().clone()) // clone bad, i know
     }
 }

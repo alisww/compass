@@ -13,9 +13,9 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 
-fn parse_query_list<F>(q: &str, filter_gen: F) -> Result<String,CompassError>
+fn parse_query_list<F>(q: &str, filter_gen: F) -> Result<String, CompassError>
 where
-    F: Fn(&str) -> Result<String,CompassError>,
+    F: Fn(&str) -> Result<String, CompassError>,
 {
     let mut filters: Vec<String> = Vec::new();
     let mut iter = q.split("_");
@@ -41,7 +41,7 @@ where
 pub fn json_search(
     client: &mut Client,
     schema: &Schema,
-    fields: &HashMap<String,String>,
+    fields: &HashMap<String, String>,
 ) -> Result<Vec<Value>, CompassError> {
     let mut jsonb_filters = Vec::<String>::new();
     let mut other_filters = Vec::<String>::new();
@@ -99,13 +99,21 @@ pub fn json_search(
             // time to generate the query!
             FieldQuery::Min => {
                 let filters = parse_query_list(v, |x| {
-                    Ok(format!("($.{} > {})", field.0, x.parse::<i32>().map_err(CompassError::InvalidNumberError)?))
+                    Ok(format!(
+                        "($.{} > {})",
+                        field.0,
+                        x.parse::<i32>().map_err(CompassError::InvalidNumberError)?
+                    ))
                 })?;
                 jsonb_filters.push(filters);
             }
             FieldQuery::Max => {
                 let filters = parse_query_list(v, |x| {
-                    Ok(format!("($.{} < {})", field.0, x.parse::<i32>().map_err(CompassError::InvalidNumberError)?))
+                    Ok(format!(
+                        "($.{} < {})",
+                        field.0,
+                        x.parse::<i32>().map_err(CompassError::InvalidNumberError)?
+                    ))
                 })?;
                 jsonb_filters.push(filters);
             }
@@ -131,10 +139,10 @@ pub fn json_search(
             }
             FieldQuery::Fulltext { ref lang } => {
                 other_filters.push(format!(
-                    "to_tsvector('{}',object->>'{}') @@ phraseto_tsquery(${})",
-                    lang,
-                    field.0,
-                    other_filters.len() + 5
+                    "to_tsvector('{lang}',object->>'{key}') @@ phraseto_tsquery('{lang}',${parameter})",
+                    lang=lang,
+                    key=field.0,
+                    parameter=other_filters.len() + 5
                 ));
                 other_bindings.push(v.to_string());
             }
@@ -165,16 +173,12 @@ pub fn json_search(
         .map_err(CompassError::PGError)?;
 
     let limit = match fields.get("limit") {
-        Some(l) => l
-            .parse::<i64>()
-            .map_err(CompassError::InvalidNumberError)?,
+        Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?,
         None => 50,
     };
 
     let offset = match fields.get("offset") {
-        Some(l) => l
-            .parse::<i64>()
-            .map_err(CompassError::InvalidNumberError)?,
+        Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?,
         None => 0,
     };
 

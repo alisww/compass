@@ -8,7 +8,7 @@ pub enum CompassError {
     FieldNotFound,
     PGError(PGError),
     JSONError(SerdeError),
-    InvalidNumberError(ParseIntError)
+    InvalidNumberError(ParseIntError),
 }
 
 impl std::error::Error for CompassError {}
@@ -38,7 +38,11 @@ impl fmt::Display for CompassError {
 }
 
 #[cfg(feature = "rocket_support")]
-use rocket::{http::Status, response::{Response,Responder,self}, Request};
+use rocket::{
+    http::Status,
+    response::{self, Responder, Response},
+    Request,
+};
 #[cfg(feature = "rocket_support")]
 use std::io::Cursor;
 #[cfg(feature = "rocket_support")]
@@ -50,30 +54,30 @@ impl<'r> Responder<'r, 'static> for CompassError {
             FieldNotFound => {
                 let r_text = "field not found in schema";
                 Response::build()
-                .status(Status::BadRequest)
-                .sized_body(r_text.len(),Cursor::new(r_text))
-                .ok()
-            },
+                    .status(Status::BadRequest)
+                    .sized_body(r_text.len(), Cursor::new(r_text))
+                    .ok()
+            }
             InvalidNumberError(_) => {
                 let r_text = "couldn't parse number parameter";
                 Response::build()
-                .status(Status::BadRequest)
-                .sized_body(r_text.len(),Cursor::new(r_text))
-                .ok()
-            },
+                    .status(Status::BadRequest)
+                    .sized_body(r_text.len(), Cursor::new(r_text))
+                    .ok()
+            }
             PGError(ref err) => {
                 let r_text = err.to_string();
                 Response::build()
-                .status(Status::InternalServerError)
-                .sized_body(r_text.len(),Cursor::new(r_text))
-                .ok()
-            },
+                    .status(Status::InternalServerError)
+                    .sized_body(r_text.len(), Cursor::new(r_text))
+                    .ok()
+            }
             JSONError(ref err) => {
                 let r_text = err.to_string();
                 Response::build()
-                .status(Status::InternalServerError)
-                .sized_body(r_text.len(),Cursor::new(r_text))
-                .ok()
+                    .status(Status::InternalServerError)
+                    .sized_body(r_text.len(), Cursor::new(r_text))
+                    .ok()
             }
         }
     }
