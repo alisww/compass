@@ -13,15 +13,15 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 
-fn parse_query_list<F>(q: &str, filter_gen: F) -> String
+fn parse_query_list<F>(q: &str, filter_gen: F) -> Result<String,CompassError>
 where
-    F: Fn(&str) -> String,
+    F: Fn(&str) -> Result<String,CompassError>,
 {
     let mut filters: Vec<String> = Vec::new();
     let mut iter = q.split("_");
 
     while let Some(val) = iter.next() {
-        let filter = filter_gen(val);
+        let filter = filter_gen(val)?;
         filters.push(filter);
 
         if let Some(joiner) = iter.next() {
@@ -35,7 +35,7 @@ where
         }
     }
 
-    filters.join(" ")
+    Ok(filters.join(" "))
 }
 
 pub fn json_search(
@@ -99,34 +99,34 @@ pub fn json_search(
             // time to generate the query!
             FieldQuery::Min => {
                 let filters = parse_query_list(v, |x| {
-                    format!("($.{} > {})", field.0, x.parse::<i32>().unwrap())
-                });
+                    Ok(format!("($.{} > {})", field.0, x.parse::<i32>().map_err(CompassError::InvalidNumberError)?))
+                })?;
                 jsonb_filters.push(filters);
             }
             FieldQuery::Max => {
                 let filters = parse_query_list(v, |x| {
-                    format!("($.{} < {})", field.0, x.parse::<i32>().unwrap())
-                });
+                    Ok(format!("($.{} < {})", field.0, x.parse::<i32>().map_err(CompassError::InvalidNumberError)?))
+                })?;
                 jsonb_filters.push(filters);
             }
             FieldQuery::Tag => {
                 let filters = parse_query_list(v, |x| {
                     if let Ok(n) = x.parse::<i64>() {
-                        format!("($.{} == {})", field.0, n) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                        Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
                     } else {
-                        format!("($.{} == \"{}\")", field.0, x)
+                        Ok(format!("($.{} == \"{}\")", field.0, x))
                     }
-                });
+                })?;
                 jsonb_filters.push(filters);
             }
             FieldQuery::Nested => {
                 let filters = parse_query_list(v, |x| {
                     if let Ok(n) = x.parse::<i64>() {
-                        format!("($.{} == {})", field.0, n) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                        Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
                     } else {
-                        format!("($.{} == \"{}\")", field.0, x)
+                        Ok(format!("($.{} == \"{}\")", field.0, x))
                     }
-                });
+                })?;
                 jsonb_filters.push(filters);
             }
             FieldQuery::Fulltext { ref lang } => {
