@@ -142,7 +142,7 @@ pub fn json_search(
                     "to_tsvector('{lang}',object->>'{key}') @@ phraseto_tsquery('{lang}',${parameter})",
                     lang=lang,
                     key=field.0,
-                    parameter=other_filters.len() + 5
+                    parameter=other_filters.len() + 6
                 ));
                 other_bindings.push(v.to_string());
             }
@@ -166,7 +166,7 @@ pub fn json_search(
         )
     };
 
-    query += &format!(" ORDER BY object->>$2 LIMIT $3 OFFSET $4");
+    query += &format!(" ORDER BY object->>$2 $3 LIMIT $4 OFFSET $5");
 
     let statement: Statement = client
         .prepare_typed(query.as_str(), &[PostgresType::TEXT])
@@ -182,7 +182,25 @@ pub fn json_search(
         None => 0,
     };
 
-    let params: Vec<&dyn ToSql> = vec![&json_query, &schema.default_order_by, &limit, &offset];
+    let order = match fields.get("sortorder") {
+        Some(l) => {
+            let ord = l.as_str().to_uppercase();
+            if ord == "ASC" || ord == "DESC" {
+                ord
+            } else {
+                "ASC".to_owned()
+            }
+        }
+        None => "ASC".to_owned(),
+    };
+
+    let params: Vec<&dyn ToSql> = vec![
+        &json_query,
+        &schema.default_order_by,
+        &order,
+        &limit,
+        &offset,
+    ];
 
     let rows: Vec<Row> = client
         .query_raw(
