@@ -97,12 +97,23 @@ pub fn json_search(
 
         match field.1 {
             // time to generate the query!
+            FieldQuery::Range { min: _, max: _ } => {
+                // if something gets directly found as a 'Range' query, it means someone used season=18 instead of like, season_min=16. so it actually, counter-intuitively, is like a numeric tag!
+                let filters = parse_query_list(v, |x| {
+                    Ok(format!(
+                        "($.{} == {})",
+                        field.0,
+                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                    ))
+                })?;
+                jsonb_filters.push(filters);
+            }
             FieldQuery::Min => {
                 let filters = parse_query_list(v, |x| {
                     Ok(format!(
                         "($.{} > {})",
                         field.0,
-                        x.parse::<i32>().map_err(CompassError::InvalidNumberError)?
+                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
                     ))
                 })?;
                 jsonb_filters.push(filters);
@@ -112,7 +123,7 @@ pub fn json_search(
                     Ok(format!(
                         "($.{} < {})",
                         field.0,
-                        x.parse::<i32>().map_err(CompassError::InvalidNumberError)?
+                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
                     ))
                 })?;
                 jsonb_filters.push(filters);
@@ -178,7 +189,7 @@ pub fn json_search(
         None => "ASC".to_owned(),
     };
 
-    query += &format!(" ORDER BY (object->>$2) {} LIMIT $3 OFFSET $4",order);
+    query += &format!(" ORDER BY (object->>$2) {} LIMIT $3 OFFSET $4", order);
 
     let statement: Statement = client
         .prepare_typed(query.as_str(), &[PostgresType::TEXT])
@@ -194,12 +205,7 @@ pub fn json_search(
         None => 0,
     };
 
-    let params: Vec<&dyn ToSql> = vec![
-        &json_query,
-        &schema.default_order_by,
-        &limit,
-        &offset,
-    ];
+    let params: Vec<&dyn ToSql> = vec![&json_query, &schema.default_order_by, &limit, &offset];
 
     let rows: Vec<Row> = client
         .query_raw(
