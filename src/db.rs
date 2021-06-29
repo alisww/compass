@@ -186,14 +186,19 @@ pub fn json_search(
                 "ASC".to_owned()
             }
         }
-        None => "ASC".to_owned(),
+        None => "DESC".to_owned(),
     };
 
-    query += &format!(" ORDER BY (object->>$2) {} LIMIT $3 OFFSET $4", order);
+    query += &format!(" ORDER BY (object #> ($2)::text[]) {} LIMIT $3 OFFSET $4", order);
 
     let statement: Statement = client
-        .prepare_typed(query.as_str(), &[PostgresType::TEXT])
+        .prepare_typed(query.as_str(), &[PostgresType::TEXT, PostgresType::TEXT])
         .map_err(CompassError::PGError)?;
+
+    let sort_by = match fields.get("sortby") {
+        Some(l) => l.as_str(),
+        None => &schema.default_order_by.as_str()
+    };
 
     let limit = match fields.get("limit") {
         Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?,
@@ -205,7 +210,7 @@ pub fn json_search(
         None => 0,
     };
 
-    let params: Vec<&dyn ToSql> = vec![&json_query, &schema.default_order_by, &limit, &offset];
+    let params: Vec<&dyn ToSql> = vec![&json_query, &sort_by, &limit, &offset];
 
     let rows: Vec<Row> = client
         .query_raw(
