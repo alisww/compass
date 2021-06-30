@@ -132,6 +132,10 @@ pub fn json_search(
                 let filters = parse_query_list(v, |x| {
                     if let Ok(n) = x.parse::<i64>() {
                         Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                    } else if x == "exists" {
+                        Ok(format!("(exists($.{}))",field.0))
+                    } else if x == "notexists" {
+                        Ok(format!("(!exists($.{}))",field.0))
                     } else {
                         Ok(format!("($.{} == \"{}\")", field.0, x))
                     }
@@ -142,6 +146,10 @@ pub fn json_search(
                 let filters = parse_query_list(v, |x| {
                     if let Ok(n) = x.parse::<i64>() {
                         Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                    } else if x == "exists" {
+                        Ok(format!("(exists($.{}))",field.0))
+                    } else if x == "notexists" {
+                        Ok(format!("(!exists($.{}))",field.0))
                     } else {
                         Ok(format!("($.{} == \"{}\")", field.0, x))
                     }
