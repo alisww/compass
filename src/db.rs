@@ -35,7 +35,7 @@ where
         }
     }
 
-    Ok(filters.join(" "))
+    Ok(format!("({})",filters.join(" ")))
 }
 
 pub fn json_search(
@@ -178,11 +178,13 @@ pub fn json_search(
         ("SELECT object FROM documents WHERE object @@ CAST($1 AS JSONPATH)".to_string()
             + &format!(" AND {}", other_filters.join(" AND ")))
             .to_string()
-    } else {
+    } else if other_filters.len() > 0 {
         format!(
             "SELECT object FROM documents WHERE {}",
             other_filters.join(" AND ")
         )
+    } else {
+        "SELECT object FROM documents".to_owned()
     };
 
     let order = match fields.get("sortorder") {
@@ -209,7 +211,7 @@ pub fn json_search(
     };
 
     let limit = match fields.get("limit") {
-        Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?,
+        Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?.clamp(0,5000),
         None => 50,
     };
 
