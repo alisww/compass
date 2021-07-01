@@ -31,6 +31,7 @@ pub enum FieldQuery {
     Nested,
     Min,
     Max,
+    Bool
 }
 
 impl default::Default for FieldQuery {

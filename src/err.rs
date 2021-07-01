@@ -2,6 +2,7 @@ use postgres::error::Error as PGError;
 use serde_json::error::Error as SerdeError;
 use std::fmt;
 use std::num::ParseIntError;
+use std::str::ParseBoolError;
 
 #[derive(Debug)]
 pub enum CompassError {
@@ -9,6 +10,7 @@ pub enum CompassError {
     PGError(PGError),
     JSONError(SerdeError),
     InvalidNumberError(ParseIntError),
+    InvalidBoolError(ParseBoolError)
 }
 
 impl std::error::Error for CompassError {}
@@ -28,6 +30,12 @@ impl From<SerdeError> for CompassError {
 impl From<ParseIntError> for CompassError {
     fn from(err: ParseIntError) -> CompassError {
         CompassError::InvalidNumberError(err)
+    }
+}
+
+impl From<ParseBoolError> for CompassError {
+    fn from(err: ParseBoolError) -> CompassError {
+        CompassError::InvalidBoolError(err)
     }
 }
 
@@ -60,6 +68,13 @@ impl<'r> Responder<'r, 'static> for CompassError {
             }
             InvalidNumberError(_) => {
                 let r_text = "couldn't parse number parameter";
+                Response::build()
+                    .status(Status::BadRequest)
+                    .sized_body(r_text.len(), Cursor::new(r_text))
+                    .ok()
+            }
+            InvalidBoolError(_) => {
+                let r_text = "couldn't parse boolean parameter";
                 Response::build()
                     .status(Status::BadRequest)
                     .sized_body(r_text.len(), Cursor::new(r_text))

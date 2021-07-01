@@ -128,6 +128,16 @@ pub fn json_search(
                 })?;
                 jsonb_filters.push(filters);
             }
+            FieldQuery::Bool => {
+                let filters = parse_query_list(v, |x| {
+                    Ok(format!(
+                        "($.{} == {})",
+                        field.0,
+                        x.parse::<bool>().map_err(CompassError::InvalidBoolError)?
+                    ))
+                })?;
+                jsonb_filters.push(filters);
+            }
             FieldQuery::Tag => {
                 let filters = parse_query_list(v, |x| {
                     if let Ok(n) = x.parse::<i64>() {
@@ -203,7 +213,7 @@ pub fn json_search(
         None => "DESC".to_owned(),
     };
 
-    query += &format!(" ORDER BY (object #> ($2)::text[]) {} LIMIT $3 OFFSET $4", order);
+    query += &format!(" ORDER BY (object #> ($2)::text[]) {} NULLS LAST LIMIT $3 OFFSET $4", order);
 
     let statement: Statement = client
         .prepare_typed(query.as_str(), &[PostgresType::TEXT, PostgresType::TEXT])
@@ -216,7 +226,7 @@ pub fn json_search(
 
     let limit = match fields.get("limit") {
         Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?.clamp(0,5000),
-        None => 50,
+        None => 100,
     };
 
     let offset = match fields.get("offset") {
