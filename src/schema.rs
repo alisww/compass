@@ -27,16 +27,18 @@ pub struct ConverterSchema {
 pub enum FieldQuery {
     Range { min: String, max: String },
     Fulltext { lang: String },
-    Tag,
+    AmbiguousTag,
+    NumericTag,
+    StringTag,
     Nested,
     Min,
     Max,
-    Bool
+    Bool,
 }
 
 impl default::Default for FieldQuery {
     fn default() -> Self {
-        FieldQuery::Tag
+        FieldQuery::AmbiguousTag
     }
 }
 

@@ -35,7 +35,7 @@ where
         }
     }
 
-    Ok(format!("({})",filters.join(" ")))
+    Ok(format!("({})", filters.join(" ")))
 }
 
 pub fn json_search(
@@ -130,28 +130,54 @@ pub fn json_search(
             }
             FieldQuery::Bool => {
                 let filters = parse_query_list(v, |x| {
-                    Ok(format!(
-                        "($.{} == {})",
-                        field.0,
-                        x.parse::<bool>().map_err(CompassError::InvalidBoolError)?
-                    ))
+                    if x == "exists" {
+                        Ok(format!("(exists($.{}))", field.0))
+                    } else if x == "notexists" {
+                        Ok(format!("(!exists($.{}))", field.0))
+                    } else {
+                        Ok(format!(
+                            "($.{} == {})",
+                            field.0,
+                            x.parse::<bool>().map_err(CompassError::InvalidBoolError)?
+                        ))
+                    }
                 })?;
                 jsonb_filters.push(filters);
             }
-            FieldQuery::Tag => {
+            FieldQuery::AmbiguousTag => {
                 let filters = parse_query_list(v, |x| {
                     if let Ok(n) = x.parse::<i64>() {
                         Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
                     } else if let Ok(n) = x.parse::<bool>() {
                         Ok(format!("($.{} == {})", field.0, n))
                     } else if x == "exists" {
-                        Ok(format!("(exists($.{}))",field.0))
+                        Ok(format!("(exists($.{}))", field.0))
                     } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))",field.0))
+                        Ok(format!("(!exists($.{}))", field.0))
                     } else {
                         Ok(format!("($.{} == \"{}\")", field.0, x))
                     }
                 })?;
+                jsonb_filters.push(filters);
+            }
+            FieldQuery::NumericTag => {
+                let filters = parse_query_list(v, |x| {
+                    if x == "exists" {
+                        Ok(format!("(exists($.{}))", field.0))
+                    } else if x == "notexists" {
+                        Ok(format!("(!exists($.{}))", field.0))
+                    } else {
+                        Ok(format!(
+                            "($.{} == {})",
+                            field.0,
+                            x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                        ))
+                    }
+                })?;
+                jsonb_filters.push(filters);
+            }
+            FieldQuery::StringTag => {
+                let filters = parse_query_list(v, |x| Ok(format!("($.{} == \"{}\")", field.0, x)))?;
                 jsonb_filters.push(filters);
             }
             FieldQuery::Nested => {
@@ -161,9 +187,9 @@ pub fn json_search(
                     } else if let Ok(n) = x.parse::<bool>() {
                         Ok(format!("($.{} == {})", field.0, n))
                     } else if x == "exists" {
-                        Ok(format!("(exists($.{}))",field.0))
+                        Ok(format!("(exists($.{}))", field.0))
                     } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))",field.0))
+                        Ok(format!("(!exists($.{}))", field.0))
                     } else {
                         Ok(format!("($.{} == \"{}\")", field.0, x))
                     }
@@ -213,7 +239,10 @@ pub fn json_search(
         None => "DESC".to_owned(),
     };
 
-    query += &format!(" ORDER BY (object #> ($2)::text[]) {} NULLS LAST LIMIT $3 OFFSET $4", order);
+    query += &format!(
+        " ORDER BY (object #> ($2)::text[]) {} NULLS LAST LIMIT $3 OFFSET $4",
+        order
+    );
 
     let statement: Statement = client
         .prepare_typed(query.as_str(), &[PostgresType::TEXT, PostgresType::TEXT])
@@ -221,11 +250,14 @@ pub fn json_search(
 
     let sort_by = match fields.get("sortby") {
         Some(l) => l.as_str(),
-        None => &schema.default_order_by.as_str()
+        None => &schema.default_order_by.as_str(),
     };
 
     let limit = match fields.get("limit") {
-        Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?.clamp(0,5000),
+        Some(l) => l
+            .parse::<i64>()
+            .map_err(CompassError::InvalidNumberError)?
+            .clamp(0, 5000),
         None => 100,
     };
 

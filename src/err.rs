@@ -10,7 +10,7 @@ pub enum CompassError {
     PGError(PGError),
     JSONError(SerdeError),
     InvalidNumberError(ParseIntError),
-    InvalidBoolError(ParseBoolError)
+    InvalidBoolError(ParseBoolError),
 }
 
 impl std::error::Error for CompassError {}
