@@ -146,17 +146,21 @@ pub fn json_search(
             }
             FieldQuery::AmbiguousTag => {
                 let filters = parse_query_list(v, |x| {
+                    let mut filter: Vec<String> = Vec::new();
+
                     if let Ok(n) = x.parse::<i64>() {
-                        Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                        filter.push(format!("($.{} == {})", field.0, n)); // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
                     } else if let Ok(n) = x.parse::<bool>() {
-                        Ok(format!("($.{} == {})", field.0, n))
+                        filter.push(format!("($.{} == {})", field.0, n));
                     } else if x == "exists" {
-                        Ok(format!("(exists($.{}))", field.0))
+                        filter.push(format!("(exists($.{}))", field.0))
                     } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))", field.0))
-                    } else {
-                        Ok(format!("($.{} == \"{}\")", field.0, x))
+                        filter.push(format!("(!exists($.{}))", field.0))
                     }
+
+                    filter.push(format!("($.{} == \"{}\")", field.0, x));
+
+                    Ok(format!("({})",filter.join(" || ")))
                 })?;
                 jsonb_filters.push(filters);
             }
@@ -182,17 +186,21 @@ pub fn json_search(
             }
             FieldQuery::Nested => {
                 let filters = parse_query_list(v, |x| {
+                    let mut filter: Vec<String> = Vec::new();
+
                     if let Ok(n) = x.parse::<i64>() {
-                        Ok(format!("($.{} == {})", field.0, n)) // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                        filter.push(format!("($.{} == {})", field.0, n)); // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
                     } else if let Ok(n) = x.parse::<bool>() {
-                        Ok(format!("($.{} == {})", field.0, n))
+                        filter.push(format!("($.{} == {})", field.0, n));
                     } else if x == "exists" {
-                        Ok(format!("(exists($.{}))", field.0))
+                        filter.push(format!("(exists($.{}))", field.0))
                     } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))", field.0))
-                    } else {
-                        Ok(format!("($.{} == \"{}\")", field.0, x))
+                        filter.push(format!("(!exists($.{}))", field.0))
                     }
+
+                    filter.push(format!("($.{} == \"{}\")", field.0, x));
+
+                    Ok(format!("({})",filter.join(" || ")))
                 })?;
                 jsonb_filters.push(filters);
             }
