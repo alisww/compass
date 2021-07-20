@@ -100,11 +100,17 @@ pub fn json_search(
             FieldQuery::Range { min: _, max: _ } => {
                 // if something gets directly found as a 'Range' query, it means someone used season=18 instead of like, season_min=16. so it actually, counter-intuitively, is like a numeric tag!
                 let filters = parse_query_list(v, |x| {
-                    Ok(format!(
-                        "($.{} == {})",
-                        field.0,
-                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                    ))
+                    if x == "exists" {
+                        Ok(format!("(exists($.{}))", field.0))
+                    } else if x == "notexists" {
+                        Ok(format!("(!exists($.{}))", field.0))
+                    } else {
+                        Ok(format!(
+                            "($.{} == {})",
+                            field.0,
+                            x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                        ))
+                    }
                 })?;
                 jsonb_filters.push(filters);
             }
