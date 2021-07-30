@@ -166,7 +166,7 @@ pub fn json_search(
 
                     filter.push(format!("($.{} == \"{}\")", field.0, x));
 
-                    Ok(format!("({})",filter.join(" || ")))
+                    Ok(format!("({})", filter.join(" || ")))
                 })?;
                 jsonb_filters.push(filters);
             }
@@ -206,7 +206,7 @@ pub fn json_search(
 
                     filter.push(format!("($.{} == \"{}\")", field.0, x));
 
-                    Ok(format!("({})",filter.join(" || ")))
+                    Ok(format!("({})", filter.join(" || ")))
                 })?;
                 jsonb_filters.push(filters);
             }
@@ -268,10 +268,7 @@ pub fn json_search(
     };
 
     let limit = match fields.get("limit") {
-        Some(l) => l
-            .parse::<i64>()
-            .map_err(CompassError::InvalidNumberError)?
-            .clamp(0, 5000),
+        Some(l) => l.parse::<i64>().map_err(CompassError::InvalidNumberError)?,
         None => 100,
     };
 
