@@ -67,7 +67,9 @@ pub fn json_search(
                 schema.fields.iter().find_map(|f| {
                     match f.1.query {
                         // oops we couldn't find it; let's see if it's a field that can have multiple names like range or metadata
-                        FieldQuery::Range { ref min, ref max } => {
+                        FieldQuery::Range {
+                            ref min, ref max, ..
+                        } => {
                             if k == min {
                                 Some((f.0, FieldQuery::Min))
                             } else if k == max {
@@ -97,7 +99,11 @@ pub fn json_search(
 
         match field.1 {
             // time to generate the query!
-            FieldQuery::Range { min: _, max: _ } => {
+            FieldQuery::Range {
+                min: _,
+                max: _,
+                ref aliases,
+            } => {
                 // if something gets directly found as a 'Range' query, it means someone used season=18 instead of like, season_min=16. so it actually, counter-intuitively, is like a numeric tag!
                 let filters = parse_query_list(v, |x| {
                     if x == "exists" {
@@ -105,11 +111,15 @@ pub fn json_search(
                     } else if x == "notexists" {
                         Ok(format!("(!exists($.{}))", field.0))
                     } else {
-                        Ok(format!(
-                            "($.{} == {})",
-                            field.0,
-                            x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                        ))
+                        if let Some(n) = aliases.get(&x.to_uppercase()) {
+                            Ok(format!("($.{} == {})", field.0, n))
+                        } else {
+                            Ok(format!(
+                                "($.{} == {})",
+                                field.0,
+                                x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                            ))
+                        }
                     }
                 })?;
                 jsonb_filters.push(filters);
@@ -170,18 +180,27 @@ pub fn json_search(
                 })?;
                 jsonb_filters.push(filters);
             }
-            FieldQuery::NumericTag => {
+            FieldQuery::NumericTag { ref aliases } => {
                 let filters = parse_query_list(v, |x| {
                     if x == "exists" {
                         Ok(format!("(exists($.{}))", field.0))
                     } else if x == "notexists" {
                         Ok(format!("(!exists($.{}))", field.0))
                     } else {
-                        Ok(format!(
-                            "($.{} == {})",
-                            field.0,
-                            x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                        ))
+                        if let Some(n) = aliases.get(&x.to_uppercase()) {
+                            Ok(format!(
+                                "(($.{field} == {value}) || ($.{field} == \"{value}\"))",
+                                field = field.0,
+                                value = n
+                            ))
+                        } else {
+                            Ok(format!(
+                                "(($.{field} == {value}) || ($.{field} == \"{value}\"))",
+                                field = field.0,
+                                value =
+                                    x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                            ))
+                        }
                     }
                 })?;
                 jsonb_filters.push(filters);
@@ -219,7 +238,6 @@ pub fn json_search(
                 ));
                 other_bindings.push(v.to_string());
             }
-            _ => {}
         }
     }
 

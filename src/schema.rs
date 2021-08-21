@@ -25,10 +25,20 @@ pub struct ConverterSchema {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum FieldQuery {
-    Range { min: String, max: String },
-    Fulltext { lang: String },
+    Range {
+        min: String,
+        max: String,
+        #[serde(default)]
+        aliases: HashMap<String, i64>,
+    },
+    Fulltext {
+        lang: String,
+    },
     AmbiguousTag,
-    NumericTag,
+    NumericTag {
+        #[serde(default)]
+        aliases: HashMap<String, i64>,
+    },
     StringTag,
     Nested,
     Min,
