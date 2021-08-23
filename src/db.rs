@@ -272,7 +272,7 @@ pub fn json_search(
     };
 
     query += &format!(
-        " ORDER BY (object #> ($2)::text[]), doc_id {} NULLS LAST LIMIT $3 OFFSET $4",
+        " ORDER BY (object #> ($2)::text[]) {}, doc_id NULLS LAST LIMIT $3 OFFSET $4",
         order
     );
 
