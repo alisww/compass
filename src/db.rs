@@ -13,6 +13,8 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 
+use uuid::Uuid;
+
 fn parse_query_list<F>(q: &str, filter_gen: F) -> Result<String, CompassError>
 where
     F: Fn(&str) -> Result<String, CompassError>,
@@ -48,14 +50,17 @@ pub fn json_search(
 
     let mut other_bindings = Vec::<String>::new();
 
-    let mut converters: HashMap<String, ConverterSchema> = HashMap::new();
-
-    for (k, field) in schema.fields.iter() {
-        // make a table of field -> converter, to see if we need to do any conversions on the results
-        if let Some(converter) = field.converter {
-            converters.insert(k.to_string(), converter);
-        }
-    }
+    let converters: HashMap<String, ConverterSchema> = schema
+        .fields
+        .iter()
+        .filter_map(|(k, v)| {
+            if let Some(converter) = v.converter {
+                Some((k.to_owned(), converter))
+            } else {
+                None
+            }
+        })
+        .collect();
 
     for (k, v) in fields {
         let field_maybe = match schema.fields.get(k) {
@@ -311,6 +316,53 @@ pub fn json_search(
         .map_err(CompassError::PGError)?;
 
     Ok(rows
+        .into_iter()
+        .map(|x| {
+            let mut val = x.get::<usize, Value>(0);
+            for (key, conv) in converters.iter() {
+                if let Some(field) = val.get_mut(key) {
+                    match (conv.from, conv.to) {
+                        (ConvertFrom::DateTimeString, ConvertTo::Timestamp) => {
+                            // convert timestamps back into date-strings
+                            let timest = field.as_i64().unwrap();
+                            let dt = DateTime::<Utc>::from_utc(
+                                NaiveDateTime::from_timestamp(timest, 0),
+                                Utc,
+                            );
+                            *field = json!(dt.to_rfc3339());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            val
+        })
+        .collect())
+}
+
+pub fn get_by_ids(
+    client: &mut Client,
+    schema: &Schema,
+    ids: &Vec<Uuid>,
+) -> Result<Vec<Value>, CompassError> {
+    // make a table of field -> converter, to see if we need to do any conversions on the results
+    let converters: HashMap<String, ConverterSchema> = schema
+        .fields
+        .iter()
+        .filter_map(|(k, v)| {
+            if let Some(converter) = v.converter {
+                Some((k.to_owned(), converter))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(client
+        .query(
+            "SELECT object FROM documents WHERE doc_id = ANY($1)",
+            &[ids],
+        )?
         .into_iter()
         .map(|x| {
             let mut val = x.get::<usize, Value>(0);

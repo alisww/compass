@@ -5,12 +5,13 @@ authors = ["Allie Signet <allie@cat-girl.gay>"]
 edition = "2018"
 
 [dependencies]
-postgres = { version = "0.19.1", features = ["with-serde_json-1"] }
+postgres = { version = "0.19.1", features = ["with-serde_json-1","with-uuid-0_8"] }
 serde_json = "1"
 serde_yaml = "0.8.17"
 serde = { version = "1.0", features = ["derive"] }
 futures = "0.3"
 chrono = "0.4"
+uuid = "0.8"
 
 [dependencies.rocket]
 git = "https://github.com/SergioBenitez/Rocket"
