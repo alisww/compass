@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::default;
+use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Schema {
@@ -33,6 +34,9 @@ pub enum FieldQuery {
     },
     Fulltext {
         lang: String,
+        #[serde(default)]
+        syntax: FulltextSyntax,
+        target: Option<String>
     },
     AmbiguousTag,
     NumericTag {
@@ -49,6 +53,31 @@ pub enum FieldQuery {
 impl default::Default for FieldQuery {
     fn default() -> Self {
         FieldQuery::AmbiguousTag
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum FulltextSyntax {
+    TsQuery,
+    Plain,
+    Phrase,
+    WebSearch
+}
+
+impl default::Default for FulltextSyntax {
+    fn default() -> Self {
+        FulltextSyntax::WebSearch
+    }
+}
+
+impl fmt::Display for FulltextSyntax {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FulltextSyntax::TsQuery => write!(f, "to_tsquery"),
+            FulltextSyntax::Plain => write!(f, "plainto_tsquery"),
+            FulltextSyntax::Phrase => write!(f, "phraseto_tsquery"),
+            FulltextSyntax::WebSearch => write!(f, "websearch_to_tsquery")
+        }
     }
 }
 

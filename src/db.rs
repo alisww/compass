@@ -234,11 +234,12 @@ pub fn json_search(
                 })?;
                 jsonb_filters.push(filters);
             }
-            FieldQuery::Fulltext { ref lang } => {
+            FieldQuery::Fulltext { ref lang, ref syntax, ref target } => {
                 other_filters.push(format!(
-                    "to_tsvector('{lang}',object->>'{key}') @@ phraseto_tsquery('{lang}',${parameter})",
+                    "to_tsvector('{lang}',object->>'{key}') @@ {function}('{lang}',${parameter})",
                     lang=lang,
-                    key=field.0,
+                    key=target.as_ref().unwrap_or(field.0),
+                    function=syntax,
                     parameter=other_filters.len() + 5
                 ));
                 other_bindings.push(v.to_string());
