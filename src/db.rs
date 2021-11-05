@@ -11,7 +11,7 @@ use postgres::{Row, Statement};
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 
 use uuid::Uuid;
 
@@ -234,13 +234,17 @@ pub fn json_search(
                 })?;
                 jsonb_filters.push(filters);
             }
-            FieldQuery::Fulltext { ref lang, ref syntax, ref target } => {
+            FieldQuery::Fulltext {
+                ref lang,
+                ref syntax,
+                ref target,
+            } => {
                 other_filters.push(format!(
                     "to_tsvector('{lang}',object->>'{key}') @@ {function}('{lang}',${parameter})",
-                    lang=lang,
-                    key=target.as_ref().unwrap_or(field.0),
-                    function=syntax,
-                    parameter=other_filters.len() + 5
+                    lang = lang,
+                    key = target.as_ref().unwrap_or(field.0),
+                    function = syntax,
+                    parameter = other_filters.len() + 5
                 ));
                 other_bindings.push(v.to_string());
             }
@@ -251,18 +255,24 @@ pub fn json_search(
 
     // build out full query
     let mut query = if jsonb_filters.len() > 0 && other_filters.len() == 0 {
-        "SELECT object FROM documents WHERE object @@ CAST($1 AS JSONPATH)".to_string()
+        format!(
+            "SELECT object FROM {} WHERE object @@ CAST($1 AS JSONPATH)",
+            schema.table
+        )
     } else if jsonb_filters.len() > 0 && other_filters.len() > 0 {
-        ("SELECT object FROM documents WHERE object @@ CAST($1 AS JSONPATH)".to_string()
-            + &format!(" AND {}", other_filters.join(" AND ")))
+        (format!(
+            "SELECT object FROM {} WHERE object @@ CAST($1 AS JSONPATH)",
+            schema.table
+        ) + &format!(" AND {}", other_filters.join(" AND ")))
             .to_string()
     } else if other_filters.len() > 0 {
         format!(
-            "SELECT object FROM documents WHERE {}",
+            "SELECT object FROM {} WHERE {}",
+            schema.table,
             other_filters.join(" AND ")
         )
     } else {
-        "SELECT object FROM documents".to_owned()
+        format!("SELECT object FROM {}", schema.table)
     };
 
     let order = match fields.get("sortorder") {
@@ -332,6 +342,10 @@ pub fn json_search(
                             );
                             *field = json!(dt.to_rfc3339());
                         }
+                        (ConvertFrom::DateTimeString, ConvertTo::TimestampMillis) => {
+                            let dt = Utc.timestamp_millis(field.as_i64().unwrap());
+                            *field = json!(dt.to_rfc3339());
+                        }
                         _ => {}
                     }
                 }
@@ -361,7 +375,7 @@ pub fn get_by_ids(
 
     Ok(client
         .query(
-            "SELECT object FROM documents WHERE doc_id = ANY($1)",
+            format!("SELECT object FROM {} WHERE doc_id = ANY($1)", schema.table).as_str(),
             &[ids],
         )?
         .into_iter()
@@ -377,6 +391,10 @@ pub fn get_by_ids(
                                 NaiveDateTime::from_timestamp(timest, 0),
                                 Utc,
                             );
+                            *field = json!(dt.to_rfc3339());
+                        }
+                        (ConvertFrom::DateTimeString, ConvertTo::TimestampMillis) => {
+                            let dt = Utc.timestamp_millis(field.as_i64().unwrap());
                             *field = json!(dt.to_rfc3339());
                         }
                         _ => {}

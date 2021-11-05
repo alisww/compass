@@ -7,6 +7,7 @@ use std::fmt;
 pub struct Schema {
     pub fields: HashMap<String, Field>,
     pub default_order_by: String,
+    pub table: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,7 +37,7 @@ pub enum FieldQuery {
         lang: String,
         #[serde(default)]
         syntax: FulltextSyntax,
-        target: Option<String>
+        target: Option<String>,
     },
     AmbiguousTag,
     NumericTag {
@@ -61,7 +62,7 @@ pub enum FulltextSyntax {
     TsQuery,
     Plain,
     Phrase,
-    WebSearch
+    WebSearch,
 }
 
 impl default::Default for FulltextSyntax {
@@ -76,7 +77,7 @@ impl fmt::Display for FulltextSyntax {
             FulltextSyntax::TsQuery => write!(f, "to_tsquery"),
             FulltextSyntax::Plain => write!(f, "plainto_tsquery"),
             FulltextSyntax::Phrase => write!(f, "phraseto_tsquery"),
-            FulltextSyntax::WebSearch => write!(f, "websearch_to_tsquery")
+            FulltextSyntax::WebSearch => write!(f, "websearch_to_tsquery"),
         }
     }
 }
@@ -92,6 +93,7 @@ pub enum ConvertFrom {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum ConvertTo {
     Timestamp,
+    TimestampMillis,
     TagArray,
 }
 
