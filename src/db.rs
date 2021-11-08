@@ -340,11 +340,11 @@ pub fn json_search(
                                 NaiveDateTime::from_timestamp(timest, 0),
                                 Utc,
                             );
-                            *field = json!(dt.to_rfc3339());
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
                         }
                         (ConvertFrom::DateTimeString, ConvertTo::TimestampMillis) => {
                             let dt = Utc.timestamp_millis(field.as_i64().unwrap());
-                            *field = json!(dt.to_rfc3339());
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
                         }
                         _ => {}
                     }
@@ -391,11 +391,11 @@ pub fn get_by_ids(
                                 NaiveDateTime::from_timestamp(timest, 0),
                                 Utc,
                             );
-                            *field = json!(dt.to_rfc3339());
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
                         }
                         (ConvertFrom::DateTimeString, ConvertTo::TimestampMillis) => {
                             let dt = Utc.timestamp_millis(field.as_i64().unwrap());
-                            *field = json!(dt.to_rfc3339());
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
                         }
                         _ => {}
                     }
