@@ -40,27 +40,15 @@ where
     Ok(format!("({})", filters.join(" ")))
 }
 
-pub fn json_search(
-    client: &mut Client,
+pub fn generate_where(
     schema: &Schema,
     fields: &HashMap<String, String>,
-) -> Result<Vec<Value>, CompassError> {
+    bind_index: usize,
+) -> Result<(String, String, String, Vec<String>), CompassError> {
     let mut jsonb_filters = Vec::<String>::new();
     let mut other_filters = Vec::<String>::new();
 
     let mut other_bindings = Vec::<String>::new();
-
-    let converters: HashMap<String, ConverterSchema> = schema
-        .fields
-        .iter()
-        .filter_map(|(k, v)| {
-            if let Some(converter) = v.converter {
-                Some((k.to_owned(), converter))
-            } else {
-                None
-            }
-        })
-        .collect();
 
     for (k, v) in fields {
         let field_maybe = match schema.fields.get(k) {
@@ -244,7 +232,7 @@ pub fn json_search(
                     lang = lang,
                     key = target.as_ref().unwrap_or(field.0),
                     function = syntax,
-                    parameter = other_filters.len() + 5
+                    parameter = other_filters.len() + bind_index
                 ));
                 other_bindings.push(v.to_string());
             }
@@ -254,25 +242,17 @@ pub fn json_search(
     let json_query = format!("({})", jsonb_filters.join(" && "));
 
     // build out full query
-    let mut query = if jsonb_filters.len() > 0 && other_filters.len() == 0 {
-        format!(
-            "SELECT object FROM {} WHERE object @@ CAST($1 AS JSONPATH)",
-            schema.table
-        )
+    let query = if jsonb_filters.len() > 0 && other_filters.len() == 0 {
+        "WHERE object @@ CAST($1 AS JSONPATH)".to_owned()
     } else if jsonb_filters.len() > 0 && other_filters.len() > 0 {
-        (format!(
-            "SELECT object FROM {} WHERE object @@ CAST($1 AS JSONPATH)",
-            schema.table
-        ) + &format!(" AND {}", other_filters.join(" AND ")))
-            .to_string()
-    } else if other_filters.len() > 0 {
         format!(
-            "SELECT object FROM {} WHERE {}",
-            schema.table,
+            "WHERE object @@ CAST($1 AS JSONPATH) AND {}",
             other_filters.join(" AND ")
         )
+    } else if other_filters.len() > 0 {
+        format!("WHERE {}", other_filters.join(" AND "))
     } else {
-        format!("SELECT object FROM {}", schema.table)
+        String::new()
     };
 
     let order = match fields.get("sortorder") {
@@ -287,9 +267,35 @@ pub fn json_search(
         None => "DESC".to_owned(),
     };
 
-    query += &format!(
+    let order_string = format!(
         " ORDER BY (object #> ($2)::text[]) {}, doc_id NULLS LAST LIMIT $3 OFFSET $4",
         order
+    );
+
+    Ok((query, order_string, json_query, other_bindings))
+}
+
+pub fn json_search(
+    client: &mut Client,
+    schema: &Schema,
+    fields: &HashMap<String, String>,
+) -> Result<Vec<Value>, CompassError> {
+    let converters: HashMap<String, ConverterSchema> = schema
+        .fields
+        .iter()
+        .filter_map(|(k, v)| {
+            if let Some(converter) = v.converter {
+                Some((k.to_owned(), converter))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let (query, sort_string, json_query, other_bindings) = generate_where(schema, fields, 5)?;
+    let query = format!(
+        "SELECT object FROM {} {} {}",
+        schema.table, query, sort_string
     );
 
     let statement: Statement = client
@@ -340,11 +346,11 @@ pub fn json_search(
                                 NaiveDateTime::from_timestamp(timest, 0),
                                 Utc,
                             );
-                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
                         }
                         (ConvertFrom::DateTimeString, ConvertTo::TimestampMillis) => {
                             let dt = Utc.timestamp_millis(field.as_i64().unwrap());
-                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
                         }
                         _ => {}
                     }
@@ -353,6 +359,35 @@ pub fn json_search(
             val
         })
         .collect())
+}
+
+pub fn json_count(
+    client: &mut Client,
+    schema: &Schema,
+    fields: &HashMap<String, String>,
+) -> Result<i64, CompassError> {
+    let (query, _, json_query, other_bindings) = generate_where(schema, fields, 2)?;
+    let query = format!("SELECT COUNT(*) FROM {} {}", schema.table, query);
+
+    let statement: Statement = client
+        .prepare_typed(query.as_str(), &[PostgresType::TEXT, PostgresType::TEXT])
+        .map_err(CompassError::PGError)?;
+
+    let params: Vec<&dyn ToSql> = vec![&json_query];
+
+    let res: Row = client
+        .query_raw(
+            &statement,
+            params
+                .iter()
+                .copied()
+                .chain(other_bindings.iter().map(|x| &*x as &dyn ToSql))
+                .collect::<Vec<&dyn ToSql>>(),
+        )
+        .map_err(CompassError::PGError)?
+        .next()?
+        .unwrap();
+    res.try_get::<usize, i64>(0).map_err(CompassError::PGError)
 }
 
 pub fn get_by_ids(
@@ -391,11 +426,11 @@ pub fn get_by_ids(
                                 NaiveDateTime::from_timestamp(timest, 0),
                                 Utc,
                             );
-                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
                         }
                         (ConvertFrom::DateTimeString, ConvertTo::TimestampMillis) => {
                             let dt = Utc.timestamp_millis(field.as_i64().unwrap());
-                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis,true));
+                            *field = json!(dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
                         }
                         _ => {}
                     }
