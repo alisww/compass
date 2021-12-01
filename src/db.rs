@@ -20,21 +20,33 @@ where
     F: Fn(&str) -> Result<String, CompassError>,
 {
     let mut filters: Vec<String> = Vec::new();
-    let mut iter = q.split("_");
+    let mut iter = q.split_inclusive('_');
+
+    let mut curr_filter = String::new();
 
     while let Some(val) = iter.next() {
-        let filter = filter_gen(val)?;
-        filters.push(filter);
-
-        if let Some(joiner) = iter.next() {
-            if joiner == "and" {
-                filters.push("&&".to_string());
-            } else if joiner == "or" {
-                filters.push("||".to_string());
-            }
+        println!("{}", val);
+        if val == "and_" {
+            let filter_string = curr_filter.strip_suffix('_').unwrap_or(&curr_filter);
+            let filter = filter_gen(filter_string)?;
+            curr_filter = String::new();
+            filters.push(filter);
+            filters.push("&&".to_string());
+        } else if val == "or_" {
+            let filter_string = curr_filter.strip_suffix('_').unwrap_or(&curr_filter);
+            let filter = filter_gen(filter_string)?;
+            curr_filter = String::new();
+            filters.push(filter);
+            filters.push("||".to_string());
         } else {
-            break;
-        }
+            curr_filter += val;
+        };
+    }
+
+    if !curr_filter.is_empty() {
+        let filter = filter_gen(&curr_filter)?;
+        curr_filter = String::new();
+        filters.push(filter);
     }
 
     Ok(format!("({})", filters.join(" ")))
