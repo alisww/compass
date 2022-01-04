@@ -45,7 +45,6 @@ where
 
     if !curr_filter.is_empty() {
         let filter = filter_gen(&curr_filter)?;
-        curr_filter = String::new();
         filters.push(filter);
     }
 
@@ -56,6 +55,7 @@ pub fn generate_where(
     schema: &Schema,
     fields: &HashMap<String, String>,
     bind_index: usize,
+    force_json_query: bool,
 ) -> Result<(String, String, String, Vec<String>), CompassError> {
     let mut jsonb_filters = Vec::<String>::new();
     let mut other_filters = Vec::<String>::new();
@@ -254,9 +254,9 @@ pub fn generate_where(
     let json_query = format!("({})", jsonb_filters.join(" && "));
 
     // build out full query
-    let query = if jsonb_filters.len() > 0 && other_filters.len() == 0 {
+    let query = if (jsonb_filters.len() > 0 || force_json_query) && other_filters.len() == 0 {
         "WHERE object @@ CAST($1 AS JSONPATH)".to_owned()
-    } else if jsonb_filters.len() > 0 && other_filters.len() > 0 {
+    } else if (jsonb_filters.len() > 0 || force_json_query) && other_filters.len() > 0 {
         format!(
             "WHERE object @@ CAST($1 AS JSONPATH) AND {}",
             other_filters.join(" AND ")
@@ -291,6 +291,7 @@ pub fn json_search(
     client: &mut Client,
     schema: &Schema,
     fields: &HashMap<String, String>,
+    raw_query: Option<String>,
 ) -> Result<Vec<Value>, CompassError> {
     let converters: HashMap<String, ConverterSchema> = schema
         .fields
@@ -304,7 +305,15 @@ pub fn json_search(
         })
         .collect();
 
-    let (query, sort_string, json_query, other_bindings) = generate_where(schema, fields, 5)?;
+    let (query, sort_string, json_query, other_bindings) =
+        generate_where(schema, fields, 5, raw_query.is_some())?;
+
+    let json_query = if let Some(q) = raw_query {
+        q
+    } else {
+        json_query
+    };
+
     let query = format!(
         "SELECT object FROM {} {} {}",
         schema.table, query, sort_string
@@ -378,7 +387,7 @@ pub fn json_count(
     schema: &Schema,
     fields: &HashMap<String, String>,
 ) -> Result<i64, CompassError> {
-    let (query, _, json_query, other_bindings) = generate_where(schema, fields, 2)?;
+    let (query, _, json_query, other_bindings) = generate_where(schema, fields, 2, false)?;
     let query = format!("SELECT COUNT(*) FROM {} {}", schema.table, query);
 
     let statement: Statement = client

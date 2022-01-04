@@ -99,8 +99,6 @@ pub enum ConvertTo {
 
 #[cfg(feature = "rocket_support")]
 use rocket::{
-    async_trait,
-    outcome::IntoOutcome,
     request::{self, FromRequest, Request},
     State,
 };
