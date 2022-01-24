@@ -25,7 +25,6 @@ where
     let mut curr_filter = String::new();
 
     while let Some(val) = iter.next() {
-        println!("{}", val);
         if val == "and_" {
             let filter_string = curr_filter.strip_suffix('_').unwrap_or(&curr_filter);
             let filter = filter_gen(filter_string)?;
