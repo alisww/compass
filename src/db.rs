@@ -390,7 +390,7 @@ pub fn json_count(
     let query = format!("SELECT COUNT(*) FROM {} {}", schema.table, query);
 
     let statement: Statement = client
-        .prepare_typed(query.as_str(), &[PostgresType::TEXT, PostgresType::TEXT])
+        .prepare_typed(query.as_str(), &[PostgresType::TEXT])
         .map_err(CompassError::PGError)?;
 
     let params: Vec<&dyn ToSql> = vec![&json_query];
