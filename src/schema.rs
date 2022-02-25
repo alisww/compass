@@ -49,6 +49,7 @@ pub enum FieldQuery {
     Min,
     Max,
     Bool,
+    Not(Box<FieldQuery>),
 }
 
 impl default::Default for FieldQuery {

@@ -20,11 +20,11 @@ where
     F: Fn(&str) -> Result<String, CompassError>,
 {
     let mut filters: Vec<String> = Vec::new();
-    let mut iter = q.split_inclusive('_');
+    let iter = q.split_inclusive('_');
 
     let mut curr_filter = String::new();
 
-    while let Some(val) = iter.next() {
+    for val in iter {
         if val == "and_" {
             let filter_string = curr_filter.strip_suffix('_').unwrap_or(&curr_filter);
             let filter = filter_gen(filter_string)?;
@@ -50,6 +50,174 @@ where
     Ok(format!("({})", filters.join(" ")))
 }
 
+pub fn generate_one_field(
+    v: &str,
+    field: (&String, FieldQuery),
+    jsonb_filters: &mut Vec<String>,
+    other_filters: &mut Vec<String>,
+    other_bindings: &mut Vec<String>,
+    bind_index: usize,
+) -> Result<(), CompassError> {
+    match field.1 {
+        FieldQuery::Range {
+            min: _,
+            max: _,
+            ref aliases,
+        } => {
+            // if something gets directly found as a 'Range' query, it means someone used season=18 instead of like, season_min=16. so it actually, counter-intuitively, is like a numeric tag!
+            let filters = parse_query_list(v, |x| {
+                if x == "exists" {
+                    Ok(format!("(exists($.{}))", field.0))
+                } else if x == "notexists" {
+                    Ok(format!("(!exists($.{}))", field.0))
+                } else if let Some(n) = aliases.get(&x.to_uppercase()) {
+                    Ok(format!("($.{} == {})", field.0, n))
+                } else {
+                    Ok(format!(
+                        "($.{} == {})",
+                        field.0,
+                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                    ))
+                }
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::Min => {
+            let filters = parse_query_list(v, |x| {
+                Ok(format!(
+                    "($.{} > {})",
+                    field.0,
+                    x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                ))
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::Max => {
+            let filters = parse_query_list(v, |x| {
+                Ok(format!(
+                    "($.{} < {})",
+                    field.0,
+                    x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                ))
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::Bool => {
+            let filters = parse_query_list(v, |x| {
+                if x == "exists" {
+                    Ok(format!("(exists($.{}))", field.0))
+                } else if x == "notexists" {
+                    Ok(format!("(!exists($.{}))", field.0))
+                } else {
+                    Ok(format!(
+                        "($.{} == {})",
+                        field.0,
+                        x.parse::<bool>().map_err(CompassError::InvalidBoolError)?
+                    ))
+                }
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::AmbiguousTag => {
+            let filters = parse_query_list(v, |x| {
+                let mut filter: Vec<String> = Vec::new();
+
+                if let Ok(n) = x.parse::<i64>() {
+                    filter.push(format!("($.{} == {})", field.0, n)); // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                } else if let Ok(n) = x.parse::<bool>() {
+                    filter.push(format!("($.{} == {})", field.0, n));
+                } else if x == "exists" {
+                    filter.push(format!("(exists($.{}))", field.0))
+                } else if x == "notexists" {
+                    filter.push(format!("(!exists($.{}))", field.0))
+                }
+
+                filter.push(format!("($.{} == \"{}\")", field.0, x));
+
+                Ok(format!("({})", filter.join(" || ")))
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::NumericTag { ref aliases } => {
+            let filters = parse_query_list(v, |x| {
+                if x == "exists" {
+                    Ok(format!("(exists($.{}))", field.0))
+                } else if x == "notexists" {
+                    Ok(format!("(!exists($.{}))", field.0))
+                } else if let Some(n) = aliases.get(&x.to_uppercase()) {
+                    Ok(format!(
+                        "(($.{field} == {value}) || ($.{field} == \"{value}\"))",
+                        field = field.0,
+                        value = n
+                    ))
+                } else {
+                    Ok(format!(
+                        "(($.{field} == {value}) || ($.{field} == \"{value}\"))",
+                        field = field.0,
+                        value = x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
+                    ))
+                }
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::StringTag => {
+            let filters = parse_query_list(v, |x| Ok(format!("($.{} == \"{}\")", field.0, x)))?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::Nested => {
+            let filters = parse_query_list(v, |x| {
+                let mut filter: Vec<String> = Vec::new();
+
+                if let Ok(n) = x.parse::<i64>() {
+                    filter.push(format!("($.{} == {})", field.0, n)); // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
+                } else if let Ok(n) = x.parse::<bool>() {
+                    filter.push(format!("($.{} == {})", field.0, n));
+                } else if x == "exists" {
+                    filter.push(format!("(exists($.{}))", field.0))
+                } else if x == "notexists" {
+                    filter.push(format!("(!exists($.{}))", field.0))
+                }
+
+                filter.push(format!("($.{} == \"{}\")", field.0, x));
+
+                Ok(format!("({})", filter.join(" || ")))
+            })?;
+            jsonb_filters.push(filters);
+        }
+        FieldQuery::Fulltext {
+            ref lang,
+            ref syntax,
+            ref target,
+        } => {
+            other_filters.push(format!(
+                "to_tsvector('{lang}',object->>'{key}') @@ {function}('{lang}',${parameter})",
+                lang = lang,
+                key = target.as_ref().unwrap_or(field.0),
+                function = syntax,
+                parameter = other_filters.len() + bind_index
+            ));
+            other_bindings.push(v.to_string());
+        }
+        FieldQuery::Not(inner) => {
+            // i hate myself
+            let mut not_jsonb_filters = Vec::new();
+            let mut not_other_bindings = Vec::new();
+            let mut not_other_filters = Vec::new();
+            generate_one_field(
+                v,
+                (field.0, *inner),
+                &mut not_jsonb_filters,
+                &mut not_other_bindings,
+                &mut not_other_filters,
+                bind_index,
+            )?;
+
+            jsonb_filters.extend(not_jsonb_filters.into_iter().map(|v| format!("!({})", v)));
+        }
+    };
+    Ok(())
+}
+
 pub fn generate_where(
     schema: &Schema,
     fields: &HashMap<String, String>,
@@ -65,202 +233,73 @@ pub fn generate_where(
         let field_maybe = match schema.fields.get(k) {
             // find field from URL query in schema
             Some(field) => {
-                Some((k, field.query.clone())) // oh, we found it by name. cool, return that
+                Some((k.clone(), field.query.clone())) // oh, we found it by name. cool, return that
             }
             None => {
-                schema.fields.iter().find_map(|f| {
-                    match f.1.query {
-                        // oops we couldn't find it; let's see if it's a field that can have multiple names like range or metadata
-                        FieldQuery::Range {
-                            ref min, ref max, ..
-                        } => {
-                            if k == min {
-                                Some((f.0, FieldQuery::Min))
-                            } else if k == max {
-                                Some((f.0, FieldQuery::Max))
-                            } else {
-                                None
+                let find_nested = |k: &str| {
+                    schema.fields.iter().find_map(|f| {
+                        match f.1.query {
+                            // oops we couldn't find it; let's see if it's a field that can have multiple names like range or metadata
+                            FieldQuery::Range {
+                                ref min, ref max, ..
+                            } => {
+                                if k == min {
+                                    Some((f.0.to_owned(), FieldQuery::Min))
+                                } else if k == max {
+                                    Some((f.0.to_owned(), FieldQuery::Max))
+                                } else {
+                                    None
+                                }
                             }
-                        }
-                        FieldQuery::Nested => {
-                            if k.split('.').next().unwrap() == f.0 {
-                                Some((k, FieldQuery::Nested))
-                            } else {
-                                None
+                            FieldQuery::Nested => {
+                                if k.split('.').next().unwrap() == f.0 {
+                                    Some((k.to_owned(), FieldQuery::Nested))
+                                } else {
+                                    None
+                                }
                             }
+                            _ => None,
                         }
-                        _ => None,
-                    }
-                })
+                    })
+                };
+
+                if let Some(f) = k.strip_suffix('!') {
+                    println!("{}", k);
+                    // THE GOOD CODE DETECTED (JK IT'S VERY BAD THIS IS THE WORST THING I'VE EVER WRITTEN AND I'M DYING INSIDE)
+                    schema
+                        .fields
+                        .get(f)
+                        .map(|field| (k.clone(), FieldQuery::Not(Box::new(field.query.clone()))))
+                        .or(find_nested(f).map(|(a, b)| (a, FieldQuery::Not(Box::new(b)))))
+                } else {
+                    find_nested(k)
+                }
             }
         };
 
-        if let None = field_maybe {
-            continue; // yeah no i hate this. this is for fields like limit or offset, which don't have entries in the schema
-        }
-
-        let field = field_maybe.unwrap();
-
-        match field.1 {
-            // time to generate the query!
-            FieldQuery::Range {
-                min: _,
-                max: _,
-                ref aliases,
-            } => {
-                // if something gets directly found as a 'Range' query, it means someone used season=18 instead of like, season_min=16. so it actually, counter-intuitively, is like a numeric tag!
-                let filters = parse_query_list(v, |x| {
-                    if x == "exists" {
-                        Ok(format!("(exists($.{}))", field.0))
-                    } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))", field.0))
-                    } else {
-                        if let Some(n) = aliases.get(&x.to_uppercase()) {
-                            Ok(format!("($.{} == {})", field.0, n))
-                        } else {
-                            Ok(format!(
-                                "($.{} == {})",
-                                field.0,
-                                x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                            ))
-                        }
-                    }
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::Min => {
-                let filters = parse_query_list(v, |x| {
-                    Ok(format!(
-                        "($.{} > {})",
-                        field.0,
-                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                    ))
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::Max => {
-                let filters = parse_query_list(v, |x| {
-                    Ok(format!(
-                        "($.{} < {})",
-                        field.0,
-                        x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                    ))
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::Bool => {
-                let filters = parse_query_list(v, |x| {
-                    if x == "exists" {
-                        Ok(format!("(exists($.{}))", field.0))
-                    } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))", field.0))
-                    } else {
-                        Ok(format!(
-                            "($.{} == {})",
-                            field.0,
-                            x.parse::<bool>().map_err(CompassError::InvalidBoolError)?
-                        ))
-                    }
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::AmbiguousTag => {
-                let filters = parse_query_list(v, |x| {
-                    let mut filter: Vec<String> = Vec::new();
-
-                    if let Ok(n) = x.parse::<i64>() {
-                        filter.push(format!("($.{} == {})", field.0, n)); // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
-                    } else if let Ok(n) = x.parse::<bool>() {
-                        filter.push(format!("($.{} == {})", field.0, n));
-                    } else if x == "exists" {
-                        filter.push(format!("(exists($.{}))", field.0))
-                    } else if x == "notexists" {
-                        filter.push(format!("(!exists($.{}))", field.0))
-                    }
-
-                    filter.push(format!("($.{} == \"{}\")", field.0, x));
-
-                    Ok(format!("({})", filter.join(" || ")))
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::NumericTag { ref aliases } => {
-                let filters = parse_query_list(v, |x| {
-                    if x == "exists" {
-                        Ok(format!("(exists($.{}))", field.0))
-                    } else if x == "notexists" {
-                        Ok(format!("(!exists($.{}))", field.0))
-                    } else {
-                        if let Some(n) = aliases.get(&x.to_uppercase()) {
-                            Ok(format!(
-                                "(($.{field} == {value}) || ($.{field} == \"{value}\"))",
-                                field = field.0,
-                                value = n
-                            ))
-                        } else {
-                            Ok(format!(
-                                "(($.{field} == {value}) || ($.{field} == \"{value}\"))",
-                                field = field.0,
-                                value =
-                                    x.parse::<i64>().map_err(CompassError::InvalidNumberError)?
-                            ))
-                        }
-                    }
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::StringTag => {
-                let filters = parse_query_list(v, |x| Ok(format!("($.{} == \"{}\")", field.0, x)))?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::Nested => {
-                let filters = parse_query_list(v, |x| {
-                    let mut filter: Vec<String> = Vec::new();
-
-                    if let Ok(n) = x.parse::<i64>() {
-                        filter.push(format!("($.{} == {})", field.0, n)); // if it looks like an int, make it an int! because we can't specificy all the metadata fields in the schema. yeah i don't like this either
-                    } else if let Ok(n) = x.parse::<bool>() {
-                        filter.push(format!("($.{} == {})", field.0, n));
-                    } else if x == "exists" {
-                        filter.push(format!("(exists($.{}))", field.0))
-                    } else if x == "notexists" {
-                        filter.push(format!("(!exists($.{}))", field.0))
-                    }
-
-                    filter.push(format!("($.{} == \"{}\")", field.0, x));
-
-                    Ok(format!("({})", filter.join(" || ")))
-                })?;
-                jsonb_filters.push(filters);
-            }
-            FieldQuery::Fulltext {
-                ref lang,
-                ref syntax,
-                ref target,
-            } => {
-                other_filters.push(format!(
-                    "to_tsvector('{lang}',object->>'{key}') @@ {function}('{lang}',${parameter})",
-                    lang = lang,
-                    key = target.as_ref().unwrap_or(field.0),
-                    function = syntax,
-                    parameter = other_filters.len() + bind_index
-                ));
-                other_bindings.push(v.to_string());
-            }
+        if let Some(field) = field_maybe {
+            generate_one_field(
+                v,
+                (&field.0, field.1),
+                &mut jsonb_filters,
+                &mut other_filters,
+                &mut other_bindings,
+                bind_index,
+            )?;
         }
     }
 
     let json_query = format!("({})", jsonb_filters.join(" && "));
 
     // build out full query
-    let query = if (jsonb_filters.len() > 0 || force_json_query) && other_filters.len() == 0 {
+    let query = if (!jsonb_filters.is_empty() || force_json_query) && other_filters.is_empty() {
         "WHERE object @@ CAST($1 AS JSONPATH)".to_owned()
-    } else if (jsonb_filters.len() > 0 || force_json_query) && other_filters.len() > 0 {
+    } else if (!jsonb_filters.is_empty() || force_json_query) && !other_filters.is_empty() {
         format!(
             "WHERE object @@ CAST($1 AS JSONPATH) AND {}",
             other_filters.join(" AND ")
         )
-    } else if other_filters.len() > 0 {
+    } else if !other_filters.is_empty() {
         format!("WHERE {}", other_filters.join(" AND "))
     } else {
         String::new()
@@ -296,11 +335,7 @@ pub fn json_search(
         .fields
         .iter()
         .filter_map(|(k, v)| {
-            if let Some(converter) = v.converter {
-                Some((k.to_owned(), converter))
-            } else {
-                None
-            }
+            v.converter.map(|converter| (k.to_owned(), converter))
         })
         .collect();
 
@@ -324,7 +359,7 @@ pub fn json_search(
 
     let sort_by = match fields.get("sortby") {
         Some(l) => l.as_str(),
-        None => &schema.default_order_by.as_str(),
+        None => schema.default_order_by.as_str(),
     };
 
     let limit = match fields.get("limit") {
@@ -420,11 +455,7 @@ pub fn get_by_ids(
         .fields
         .iter()
         .filter_map(|(k, v)| {
-            if let Some(converter) = v.converter {
-                Some((k.to_owned(), converter))
-            } else {
-                None
-            }
+            v.converter.map(|converter| (k.to_owned(), converter))
         })
         .collect();
 
